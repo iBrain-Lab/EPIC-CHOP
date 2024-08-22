@@ -144,6 +144,7 @@ function EPIC_CHOP(preop_anat_fname, postop_anat_fname, varargin)
 % v17: erodes by 2, dilates by 3, then multplies by difference mask, to
 % salvage unrecovered eroded voxels. Also keeps top 3 clusters in case
 % largest cluster is not the resection cavity
+% v18: uses util.defs to move to MNI space rather than spatial.normalise
 %__________________________________________________________________________
 
 
@@ -303,6 +304,8 @@ end
 if ~isfield(options,'nerode')
     options.nerode=1;
     options.ndilate=options.nerode+1;
+end
+if ~isfield(options,'nclus')    
     options.nclus=3; % number of clusters to extract
 end
 
@@ -413,11 +416,13 @@ end
 if any(options.steps==2)
     matlabbatch{1}.spm.spatial.preproc.channel.vols  = cellstr({spm_file(preop_anat_fname,'prefix','','ext','nii');spm_file(postop_anat_fname,'prefix','','ext','nii')});
     matlabbatch{1}.spm.spatial.preproc.channel.write = [0 1];
-    matlabbatch{1}.spm.spatial.preproc.warp.write    = [0 1];
+    matlabbatch{1}.spm.spatial.preproc.warp.write    = [1 1];
     spm_jobman('run',matlabbatch); clear matlabbatch;
     % rename deformation field to avoid name clash with longitudinal registration
-    system(['mv ',spm_file(preop_anat_fname,'prefix','y_','ext','nii'),' ',spm_file(preop_anat_fname,'prefix','ySeg_','ext','nii')]);
-    system(['mv ',spm_file(postop_anat_fname,'prefix','y_','ext','nii'),' ',spm_file(postop_anat_fname,'prefix','ySeg_','ext','nii')]);    
+    system(['mv ',spm_file(preop_anat_fname,'prefix','y_','ext','nii'),' ',spm_file(preop_anat_fname,'prefix','y_Seg_','ext','nii')]);
+    system(['mv ',spm_file(postop_anat_fname,'prefix','y_','ext','nii'),' ',spm_file(postop_anat_fname,'prefix','y_Seg_','ext','nii')]);   
+    system(['mv ',spm_file(preop_anat_fname,'prefix','iy_','ext','nii'),' ',spm_file(preop_anat_fname,'prefix','iy_Seg_','ext','nii')]);
+    system(['mv ',spm_file(postop_anat_fname,'prefix','iy_','ext','nii'),' ',spm_file(postop_anat_fname,'prefix','iy_Seg_','ext','nii')]); 
 end
 
 %---------------------------------
@@ -460,6 +465,7 @@ end
 % UNDER CONSTRUCTION
 if any(options.steps==10) 
     disp(['Running step: Linear Registration']);
+    copyfile(spm_file(postop_anat_fname,'prefix','','ext','nii'),spm_file(postop_anat_fname,'prefix','r','ext','nii'))
 
 end
 
@@ -475,7 +481,7 @@ if any(options.steps==5.1) % register postop MRI to preop
     matlabbatch{1}.spm.tools.longit{1}.pairwise.write_def = 1;
     spm_jobman('run',matlabbatch); clear matlabbatch;
 
-    % rename longitudinal registration defotrmation fields
+    % rename longitudinal registration deformation fields
     system(['mv ',spm_file(preop_anat_fname,'prefix','y_','ext','nii'),' ',spm_file(preop_anat_fname,'prefix','y_LR_','ext','nii')]);   % has to be y_, cant have yLR_ 
     system(['mv ',spm_file(postop_anat_fname,'prefix','y_','ext','nii'),' ',spm_file(postop_anat_fname,'prefix','y_LR_','ext','nii')]);
 
@@ -609,29 +615,42 @@ end
 % Move all images in preop space to MNI space
 %=====================================
 
-files_to_mni = {};
-    
+files_to_mni = {};  
+
 if any(contains(in_img,'preop_anat_fname'));    files_to_mni{end+1} = spm_file(preop_anat_fname,'prefix','','ext','nii'); end
-if any(contains(in_img,'postop_anat_fname'));   files_to_mni{end+1} = spm_file(postop_anat_fname,'prefix',options.LRprefix,'ext','nii'); end
 if any(contains(in_img,'preop_pet_fname'));     files_to_mni{end+1} = spm_file(preop_pet_fname,'prefix','cpre_','ext','nii'); files_to_mni{end+1} = spm_file(preop_pet_fname,'prefix','brain_cpre_','ext','nii'); end
+if any(contains(in_img,'postop_anat_fname'));   files_to_mni{end+1} = spm_file(postop_anat_fname,'prefix',options.LRprefix,'ext','nii'); end
 if any(contains(in_img,'postop_rsctman_fname'));files_to_mni{end+1} = spm_file(postop_rsctman_fname,'prefix',options.LRprefix,'ext','nii'); end
+%files_to_mni{end+1} = spm_file(preop_anat_fname,'prefix','c1','ext','nii');
+
 
 if any(options.steps==9.1)
     disp(['Running step 9.1: Normalise Write']);
-    matlabbatch{1}.spm.spatial.normalise.write.subj.def      = cellstr(spm_file(preop_anat_fname,'prefix','ySeg_','ext','nii'));
-    matlabbatch{1}.spm.spatial.normalise.write.subj.resample = files_to_mni';
-    matlabbatch{1}.spm.spatial.normalise.write.woptions.interp = 4;
+    
+    matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(preop_anat_fname,'prefix','y_Seg_','ext','nii')}; 
+    matlabbatch{1}.spm.util.defs.out{1}.pull.fnames = files_to_mni';
+    matlabbatch{1}.spm.util.defs.out{1}.pull.prefix = 'w';
+    matlabbatch{1}.spm.util.defs.out{1}.pull.savedir.savesrc = 1;
+    matlabbatch{1}.spm.util.defs.out{1}.pull.mask = 1;
+    matlabbatch{1}.spm.util.defs.out{1}.pull.fwhm = [0 0 0];
+    matlabbatch{1}.spm.util.defs.out{1}.pull.interp = 4;   
     spm_jobman('run',matlabbatch); clear matlabbatch;
 
+    
     % do nearest neighbour interpolation for the resection region image
-    matlabbatch{1}.spm.spatial.normalise.write.subj.def      = cellstr(spm_file(preop_anat_fname,'prefix','ySeg_','ext','nii'));
-    matlabbatch{1}.spm.spatial.normalise.write.subj.resample = resected_tissue_clean_fname';
-    matlabbatch{1}.spm.spatial.normalise.write.woptions.interp = 0;
+    matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(preop_anat_fname,'prefix','y_Seg_','ext','nii')}; 
+    matlabbatch{1}.spm.util.defs.out{1}.pull.fnames = resected_tissue_clean_fname';
+    matlabbatch{1}.spm.util.defs.out{1}.pull.prefix = 'w';
+    matlabbatch{1}.spm.util.defs.out{1}.pull.savedir.savesrc = 1;
+    matlabbatch{1}.spm.util.defs.out{1}.pull.mask = 1;
+    matlabbatch{1}.spm.util.defs.out{1}.pull.fwhm = [0 0 0];
+    matlabbatch{1}.spm.util.defs.out{1}.pull.interp = 0; 
     spm_jobman('run',matlabbatch); clear matlabbatch;
+    
 end
 
 %=====================================
-% Move all relevant postop images to MNI space (postop T1 and manual resection cavity) 
+% Move all relevant postop images directly to MNI space (postop T1 and manual resection cavity) 
 % Note: this uses SPMs normalise function, and does not involve the
 % longitudinal registration to account for postoperative tissue deformation
 %=====================================
@@ -639,15 +658,27 @@ end
 if any(options.steps==9.2)
 
     disp(['Running step 9.2: Normalise Write']);
-    matlabbatch{1}.spm.spatial.normalise.write.subj.def      = cellstr(spm_file(postop_anat_fname,'prefix','ySeg_','ext','nii'));
-    matlabbatch{1}.spm.spatial.normalise.write.subj.resample = {spm_file(postop_anat_fname,'prefix','','ext','nii')};     
-    matlabbatch{1}.spm.spatial.normalise.write.woptions.interp = 4;
+    
+    matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(postop_anat_fname,'prefix','y_Seg_','ext','nii')}; 
+    matlabbatch{1}.spm.util.defs.out{1}.pull.fnames = {spm_file(postop_anat_fname,'prefix','','ext','nii')};
+    matlabbatch{1}.spm.util.defs.out{1}.pull.prefix = 'w';
+    matlabbatch{1}.spm.util.defs.out{1}.pull.savedir.savesrc = 1;
+    matlabbatch{1}.spm.util.defs.out{1}.pull.mask = 1;
+    matlabbatch{1}.spm.util.defs.out{1}.pull.fwhm = [0 0 0];
+    matlabbatch{1}.spm.util.defs.out{1}.pull.interp = 4;
+    
     spm_jobman('run',matlabbatch); clear matlabbatch;
 
     if any(contains(in_img,'postop_rsctman_fname'))    
-        matlabbatch{1}.spm.spatial.normalise.write.subj.def      = cellstr(spm_file(postop_anat_fname,'prefix','ySeg_','ext','nii'));
-        matlabbatch{1}.spm.spatial.normalise.write.subj.resample = cellstr(postop_rsctman_fname);
-        matlabbatch{1}.spm.spatial.normalise.write.woptions.interp = 0;
+        
+        matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(postop_anat_fname,'prefix','y_Seg_','ext','nii')}; 
+        matlabbatch{1}.spm.util.defs.out{1}.pull.fnames = {spm_file(postop_rsctman_fname,'prefix','','ext','nii')};
+        matlabbatch{1}.spm.util.defs.out{1}.pull.prefix = 'w';
+        matlabbatch{1}.spm.util.defs.out{1}.pull.savedir.savesrc = 1;
+        matlabbatch{1}.spm.util.defs.out{1}.pull.mask = 1;
+        matlabbatch{1}.spm.util.defs.out{1}.pull.fwhm = [0 0 0];
+        matlabbatch{1}.spm.util.defs.out{1}.pull.interp = 0; 
+
         spm_jobman('run',matlabbatch); clear matlabbatch;
     end
 end
@@ -661,7 +692,8 @@ end
 if any(options.steps==5.3) % register preop MRI to postop space  
     disp(['Running step: Longitudinal Registration Deform']);
 
-    % resample postop MRI to preop   
+    % resample postop MRI to preop   WRONG
+    % resample preop MRI to postop
     matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(preop_anat_fname,'prefix','y_LR_','ext','nii')}; 
     matlabbatch{1}.spm.util.defs.comp{2}.inv.comp{1}.def = {spm_file(postop_anat_fname,'prefix','y_LR_','ext','nii')};
     matlabbatch{1}.spm.util.defs.comp{2}.inv.space = {spm_file(postop_anat_fname,'prefix','','ext','nii')};
@@ -844,7 +876,7 @@ function job_dilate_select_erode(in_fname,out_fname,ne,nd,i_clus)
         in_data = imdilate(in_data,kernel);
     end
     % save image
-    out_V = in_V;
+    out_V = in_V;      
     out_V.fname = fname;
     out_V.private.dat.fname = fname;
     out_V = spm_write_vol(out_V,in_data);
@@ -918,4 +950,3 @@ function result = job_getclusters(image,i_clus)
     inds = sub2ind(size(image), XYZ(:,1), XYZ(:,2), XYZ(:,3));
     result(inds) = image(inds);
 end
-
