@@ -45,22 +45,22 @@ function EPIC_CHOP(preop_anat_fname, postop_anat_fname, varargin)
 % Important output files:
 % SPACE: preop (centred to center of mass)
 % preop_anat		- /out_path/subject_name/preop/anat/com_[preop-anat-origname].nii 
-% postop_anat		- /out_path/subject_name/postop/anat/LRpre_com_[postop-anat-origname].nii
-% resection_cavity	- /out_path/subject_name/postop/anat/chop1_d2_clus1_e1_thrsubc1c2loss_thr_LRpre_c1c2_com_[postop-anat-origname].nii
-% preop_pet         - /out_path/subject_name/preop/anat/pet/cpre_com_[preop-pet-origname].nii
-% postop_rsctman	- /out_path/subject_name/postop/anat/LRpre_com_manual_[postop-anat-origname].nii
+% postop_anat		- /out_path/subject_name/postop/anat/LRpre_[postop-anat-origname].nii
+% resection_cavity	- /out_path/subject_name/postop/anat/chop1_d2_clus1_e1_thrsubp1p2loss_thr_LRpre_p1p2_[postop-anat-origname].nii
+% preop_pet         - /out_path/subject_name/preop/anat/pet/cpre_[preop-pet-origname].nii
+% postop_rsctman	- /out_path/subject_name/postop/anat/LRpre_manual_[postop-anat-origname].nii
 % SPACE: postop (centred to center of mass)
 % preop_anat		- /out_path/subject_name/preop/anat/
 % postop_anat		- /out_path/subject_name/postop/anat/com_[postop-anat-origname].nii
-% resection_cavity	- /out_path/subject_name/postop/anat/thr_LRpost_chop1_d2_clus1_e1_thrsubc1c2loss_thr_LRpre_c1c2_com_[postop-anat-origname].nii
+% resection_cavity	- /out_path/subject_name/postop/anat/thr_LRpost_chop1_d2_clus1_e1_thrsubp1p2loss_thr_LRpre_p1p2_[postop-anat-origname].nii
 % preop_pet         - NA
 % postop_rsctman	- /out_path/subject_name/postop/anat/com_manual_[postop-anat-origname].nii
 % SPACE: MNI
 % preop_anat		- /out_path/subject_name/preop/anat/wcom_[preop-anat-origname].nii
-% postop_anat		- /out_path/subject_name/postop/anat/wLRpre_com_[postop-anat-origname].nii
-% resection_cavity	- /out_path/subject_name/postop/anat/wchop1_d2_clus1_e1_thrsubc1c2loss_thr_LRpre_c1c2_com_[postop-anat-origname].nii
-% preop_pet         - /out_path/subject_name/preop/anat/pet/wcpre_com_[preop-pet-origname].nii
-% postop_rsctman	- /out_path/subject_name/postop/anat/wLRpre_com_manual_[postop-anat-origname].nii
+% postop_anat		- /out_path/subject_name/postop/anat/wLRpre_[postop-anat-origname].nii
+% resection_cavity	- /out_path/subject_name/postop/anat/wchop1_d2_clus1_e1_thrsubp1p2loss_thr_LRpre_p1p2_[postop-anat-origname].nii
+% preop_pet         - /out_path/subject_name/preop/anat/pet/wcpre_[preop-pet-origname].nii
+% postop_rsctman	- /out_path/subject_name/postop/anat/wLRpre_manual_[postop-anat-origname].nii
 % 
 %__________________________________________________________________________
 % Usage notes:
@@ -79,8 +79,9 @@ function EPIC_CHOP(preop_anat_fname, postop_anat_fname, varargin)
 % ====== ITEM 2
 %
 % The steps you want to run can be specified:
-% 0 - make a copy of images to avoid overwriting, and move them to a new directory. optional
-% 1 - reorients via autoreoirent or center of mass
+% 0 - make a copy of images to avoid overwriting (spm realign/spm coregister), and move them to a new directory. optional
+% 1* - reorients via autoreoirent or center of mass (deprecated, replaced by
+% cat12)
 % MRI_pipeline 
 % 2 - steps_segment   
 % 3 - skull strip
@@ -145,6 +146,11 @@ function EPIC_CHOP(preop_anat_fname, postop_anat_fname, varargin)
 % salvage unrecovered eroded voxels. Also keeps top 3 clusters in case
 % largest cluster is not the resection cavity
 % v18: uses util.defs to move to MNI space rather than spatial.normalise
+% v19: lets not speak about v19, except to say that Terry was most likely
+% incorrect, but has not been yet proven so.
+% v20: belatedly changes the segmentation and registration to cat12, rather
+% than spm unified. Removes step 1, reorientation via centre of mass, thus
+% requires manual approximate reorientation of PET to MRI
 %__________________________________________________________________________
 
 
@@ -283,11 +289,6 @@ if ~isfield(options,'steps')
     options.steps=[0:8,5.1,5.2,5.3,9.1,9.2];
     %options.steps=[9.1,9.2];
 end
-if ~isfield(options,'reorient')
-    %options.reorient = 'none';
-    %options.reorient = 'autoreorient';
-    options.reorient = 'centreofmass';
-end
 if ~isfield(options,'LRprefix')
     options.LRprefix='LRpre_';
     %options.LRprefix='LRpre501250_';
@@ -355,74 +356,106 @@ for i_img=1:numel(in_img)
     ImgStruct.(in_img{i_img}).currentfname = ImgStruct.(in_img{i_img}).outfname;
 end
 
-
-%---------------------------------
-% reorient images
-%---------------------------------
-
-% specify new names
-% this is the silly multiple stages for file naming you have to do if you want
-% to have multiple different pipelines of processing, but not always run each step.
-% nipype fixes this.
-for i_img=1:numel(in_img)
-    if options.reorient=="none"
-        ImgStruct.(in_img{i_img}).outfname = ImgStruct.(in_img{i_img}).currentfname;
-    elseif options.reorient=="autoreorient"
-        ImgStruct.(in_img{i_img}).outfname = spm_file(ImgStruct.(in_img{i_img}).currentfname,'prefix','aro_','ext','nii'); % declare new name
-    elseif options.reorient=="centreofmass"
-        ImgStruct.(in_img{i_img}).outfname = spm_file(ImgStruct.(in_img{i_img}).currentfname,'prefix','com_','ext','nii');
-    end
-end
-
-% set origin to mni or centre of mass.
-if any(options.steps==1) 
-
-    for i_img=1:numel(in_img)
-
-        if ~strcmp(in_img{i_img},'postop_rsctman_fname') 
-            if options.reorient=="autoreorient"
-                job_autoreorient(ImgStruct.(in_img{i_img}).currentfname, ImgStruct.(in_img{i_img}).outfname);
-            elseif options.reorient=="centreofmass"
-                job_cat_vol_set_com(ImgStruct.(in_img{i_img}).currentfname, ImgStruct.(in_img{i_img}).outfname);
-            end
-        % apply postop affine matrix to manual segmentation in postop space
-        elseif strcmp(in_img{i_img},'postop_rsctman_fname')
-            job_cat_vol_set_com(ImgStruct.(in_img{i_img}).currentfname, ImgStruct.(in_img{i_img}).outfname,...
-                                spm_file(ImgStruct.postop_anat_fname.outfname,'ext','mat')); 
-        end
-    end
-end
-
-% update filenames
-for i_img=1:numel(in_img)
-    ImgStruct.(in_img{i_img}).currentfname = ImgStruct.(in_img{i_img}).outfname;
-end
-
-
 % the optional steps are done now, so we can abandon ImgStruct and use more
 % interpretable variable names
 for i_img=1:numel(in_img)
     eval( in_img{i_img} + "="  + '''' + ImgStruct.(in_img{i_img}).currentfname + '''' + ';'); 
 end
 
-
 %=====================================
 % Process MRI
 %=====================================  
 
 %---------------------------------
-% Segment
+% Segment using cat12
 %---------------------------------
 if any(options.steps==2)
-    matlabbatch{1}.spm.spatial.preproc.channel.vols  = cellstr({spm_file(preop_anat_fname,'prefix','','ext','nii');spm_file(postop_anat_fname,'prefix','','ext','nii')});
-    matlabbatch{1}.spm.spatial.preproc.channel.write = [0 1];
-    matlabbatch{1}.spm.spatial.preproc.warp.write    = [1 1];
+    
+    matlabbatch{1}.spm.tools.cat.estwrite.data = cellstr({spm_file(preop_anat_fname,'prefix','','ext','nii'); spm_file(postop_anat_fname,'prefix','','ext','nii')});
+    matlabbatch{1}.spm.tools.cat.estwrite.data_wmh = {''};
+    matlabbatch{1}.spm.tools.cat.estwrite.nproc = 6;
+    matlabbatch{1}.spm.tools.cat.estwrite.useprior = '';
+    matlabbatch{1}.spm.tools.cat.estwrite.opts.tpm = {fullfile(spm('dir'),'tpm/TPM.nii')};
+    matlabbatch{1}.spm.tools.cat.estwrite.opts.affreg = 'mni';
+    matlabbatch{1}.spm.tools.cat.estwrite.opts.biasacc = 0.5;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.restypes.optimal = [1 0.3];
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.setCOM = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.APP = 1070;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.affmod = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.spm_kamap = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASstr = 0.5;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASmyostr = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.gcutstr = 2;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.WMHC = 2;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shooting.shootingtpm = {fullfile(spm('dir'),'/toolbox/cat12/templates_MNI152NLin2009cAsym/Template_0_GS.nii')};
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shooting.regstr = 0.5;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.vox = 1.5;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.bb = 12;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.SRP = 22;
+    matlabbatch{1}.spm.tools.cat.estwrite.extopts.ignoreErrors = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.BIDS.BIDSno = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.surface = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.surf_measures = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.neuromorphometrics = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.lpba40 = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.cobra = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.hammers = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.thalamus = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.suit = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.ibsr = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.ownatlas = {''};
+    matlabbatch{1}.spm.tools.cat.estwrite.output.GM.native = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.GM.mod = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.GM.dartel = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.WM.native = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.WM.mod = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.WM.dartel = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.native = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.warped = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.mod = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.dartel = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.ct.native = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.ct.warped = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.ct.dartel = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.pp.native = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.pp.warped = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.pp.dartel = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.native = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.warped = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.mod = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.dartel = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.native = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.warped = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.mod = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.dartel = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.native = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.warped = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.mod = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.dartel = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.atlas.native = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.label.native = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.label.warped = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.label.dartel = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.labelnative = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.bias.warped = 1;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.las.native = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.las.warped = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.las.dartel = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.jacobianwarped = 0;
+    matlabbatch{1}.spm.tools.cat.estwrite.output.warps = [1 1];
+    matlabbatch{1}.spm.tools.cat.estwrite.output.rmat = 0;
+    
     spm_jobman('run',matlabbatch); clear matlabbatch;
+    
+    for i_img=1:2
+        system(['mv ',ImgStruct.(in_img{i_img}).outpath,'/mri/* ', ImgStruct.(in_img{i_img}).outpath]);
+    end
+    
     % rename deformation field to avoid name clash with longitudinal registration
-    system(['mv ',spm_file(preop_anat_fname,'prefix','y_','ext','nii'),' ',spm_file(preop_anat_fname,'prefix','y_Seg_','ext','nii')]);
-    system(['mv ',spm_file(postop_anat_fname,'prefix','y_','ext','nii'),' ',spm_file(postop_anat_fname,'prefix','y_Seg_','ext','nii')]);   
-    system(['mv ',spm_file(preop_anat_fname,'prefix','iy_','ext','nii'),' ',spm_file(preop_anat_fname,'prefix','iy_Seg_','ext','nii')]);
-    system(['mv ',spm_file(postop_anat_fname,'prefix','iy_','ext','nii'),' ',spm_file(postop_anat_fname,'prefix','iy_Seg_','ext','nii')]); 
+    system(['mv ',spm_file(preop_anat_fname,'prefix','y_','ext','nii'),' ',spm_file(preop_anat_fname,'prefix','y_cat12_','ext','nii')]);
+    system(['mv ',spm_file(postop_anat_fname,'prefix','y_','ext','nii'),' ',spm_file(postop_anat_fname,'prefix','y_cat12_','ext','nii')]);   
+    system(['mv ',spm_file(preop_anat_fname,'prefix','iy_','ext','nii'),' ',spm_file(preop_anat_fname,'prefix','iy_cat12_','ext','nii')]);
+    system(['mv ',spm_file(postop_anat_fname,'prefix','iy_','ext','nii'),' ',spm_file(postop_anat_fname,'prefix','iy_cat12_','ext','nii')]); 
 end
 
 %---------------------------------
@@ -430,15 +463,15 @@ end
 %---------------------------------
 if any(options.steps==3) 
     job_imcalc( spm_file(preop_anat_fname,'prefix','','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','c1','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','c2','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','c3','ext','nii'),...
+                spm_file(preop_anat_fname,'prefix','p1','ext','nii'),...
+                spm_file(preop_anat_fname,'prefix','p2','ext','nii'),...
+                spm_file(preop_anat_fname,'prefix','p3','ext','nii'),...
                 spm_file(preop_anat_fname,'prefix','brain_','ext','nii'),...
                 'i1.*((i2+i3+i4)>0.5)');
     job_imcalc( spm_file(postop_anat_fname,'prefix','','ext','nii'),...
-                spm_file(postop_anat_fname,'prefix','c1','ext','nii'),...
-                spm_file(postop_anat_fname,'prefix','c2','ext','nii'),...
-                spm_file(postop_anat_fname,'prefix','c3','ext','nii'),...
+                spm_file(postop_anat_fname,'prefix','p1','ext','nii'),...
+                spm_file(postop_anat_fname,'prefix','p2','ext','nii'),...
+                spm_file(postop_anat_fname,'prefix','p3','ext','nii'),...
                 spm_file(postop_anat_fname,'prefix','brain_','ext','nii'),...
                 'i1.*((i2+i3+i4)>0.5)');        
 end
@@ -446,28 +479,17 @@ end
 
 % make mask 1
 if any(options.steps==4) 
-    job_imcalc( spm_file(preop_anat_fname,'prefix','c1','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','c2','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','c1c2_','ext','nii'),...
+    job_imcalc( spm_file(preop_anat_fname,'prefix','p1','ext','nii'),...
+                spm_file(preop_anat_fname,'prefix','p2','ext','nii'),...
+                spm_file(preop_anat_fname,'prefix','p1p2_','ext','nii'),...
                 'i1+i2');  
-    job_imcalc( spm_file(postop_anat_fname,'prefix','c1','ext','nii'),...
-                spm_file(postop_anat_fname,'prefix','c2','ext','nii'),...
-                spm_file(postop_anat_fname,'prefix','c1c2_','ext','nii'),...
+    job_imcalc( spm_file(postop_anat_fname,'prefix','p1','ext','nii'),...
+                spm_file(postop_anat_fname,'prefix','p2','ext','nii'),...
+                spm_file(postop_anat_fname,'prefix','p1p2_','ext','nii'),...
                 'i1+i2');   
 end
 
-%---------------------------------
-% Linear Registration
-%---------------------------------
-% register postop MRI to preop for visualisation purposes only 
-% comparing with LRpre_postop_anat helps to see how much the longitudinal registration rescued any
-% deformation of the tissue around the resection cavity.
-% UNDER CONSTRUCTION
-if any(options.steps==10) 
-    disp(['Running step: Linear Registration']);
-    copyfile(spm_file(postop_anat_fname,'prefix','','ext','nii'),spm_file(postop_anat_fname,'prefix','r','ext','nii'))
 
-end
 
 %---------------------------------
 % Longitudinal Registration
@@ -493,9 +515,10 @@ if any(options.steps==5.2) % register postop MRI to preop
     disp(['Running step: Longitudinal Registration Deform']);
 
     images2LRpre = {    spm_file(postop_anat_fname,'prefix','','ext','nii');...
-                        spm_file(postop_anat_fname,'prefix','c1','ext','nii');...
-                        spm_file(postop_anat_fname,'prefix','c2','ext','nii');...
-                        spm_file(postop_anat_fname,'prefix','c1c2_','ext','nii')}                                             
+                        %spm_file(postop_anat_fname,'prefix','p1','ext','nii');...
+                        %% if you want the GM and WM images in native space
+                        %spm_file(postop_anat_fname,'prefix','p2','ext','nii');...
+                        spm_file(postop_anat_fname,'prefix','p1p2_','ext','nii')}                                             
     if any(contains(in_img,'postop_rsctman_fname')); images2LRpre{end+1} =  postop_rsctman_fname ; end % include the manual segmentation mask if provided
 
     % resample postop MRI to preop   
@@ -522,49 +545,49 @@ end
 % threshold GMWM masks and subtract
 %---------------------------------
 if options.RRRprefix=='thrsub'
-    resected_tissue_fname = spm_file(postop_anat_fname,'prefix',[options.RRRprefix,'c1c2loss_','thr_',options.LRprefix,'c1c2_'],'ext','nii');
+    resected_tissue_fname = spm_file(postop_anat_fname,'prefix',[options.RRRprefix,'p1p2loss_','thr_',options.LRprefix,'p1p2_'],'ext','nii');
 elseif options.RRRprefix=="subthr"
-    resected_tissue_fname = spm_file(postop_anat_fname,'prefix',[options.RRRprefix,'thr_','c1c2loss_',options.LRprefix,'c1c2_'],'ext','nii');
+    resected_tissue_fname = spm_file(postop_anat_fname,'prefix',[options.RRRprefix,'thr_','p1p2loss_',options.LRprefix,'p1p2_'],'ext','nii');
 end
 
 if any(options.steps==6)
 
     if options.RRRprefix=='thrsub'
         %threshold preop
-        job_imcalc( spm_file(preop_anat_fname,'prefix','c1c2_','ext','nii'),...
-                    spm_file(preop_anat_fname,'prefix','thr_c1c2_','ext','nii'),...
+        job_imcalc( spm_file(preop_anat_fname,'prefix','p1p2_','ext','nii'),...
+                    spm_file(preop_anat_fname,'prefix','thr_p1p2_','ext','nii'),...
                     'i1>0.1');
         %threshold postop
-        job_imcalc( spm_file(postop_anat_fname,'prefix',[options.LRprefix,'c1c2_'],'ext','nii'),...
-                    spm_file(postop_anat_fname,'prefix',['thr_',options.LRprefix,'c1c2_'],'ext','nii'),...
+        job_imcalc( spm_file(postop_anat_fname,'prefix',[options.LRprefix,'p1p2_'],'ext','nii'),...
+                    spm_file(postop_anat_fname,'prefix',['thr_',options.LRprefix,'p1p2_'],'ext','nii'),...
                     'i1>0.1'); 
         %subtract
-        job_imcalc( spm_file(preop_anat_fname,'prefix','thr_c1c2_','ext','nii'),...
-                    spm_file(postop_anat_fname,'prefix',['thr_',options.LRprefix,'c1c2_'],'ext','nii'),...
-                    spm_file(postop_anat_fname,'prefix',['c1c2loss_','thr_',options.LRprefix,'c1c2_'],'ext','nii'),...
+        job_imcalc( spm_file(preop_anat_fname,'prefix','thr_p1p2_','ext','nii'),...
+                    spm_file(postop_anat_fname,'prefix',['thr_',options.LRprefix,'p1p2_'],'ext','nii'),...
+                    spm_file(postop_anat_fname,'prefix',['p1p2loss_','thr_',options.LRprefix,'p1p2_'],'ext','nii'),...
                     'i1-i2'); 
         %retain positive         
-        job_imcalc( spm_file(postop_anat_fname,'prefix',['c1c2loss_','thr_',options.LRprefix,'c1c2_'],'ext','nii'),...
-                    spm_file(postop_anat_fname,'prefix',[options.RRRprefix,'c1c2loss_','thr_',options.LRprefix,'c1c2_'],'ext','nii'),...
+        job_imcalc( spm_file(postop_anat_fname,'prefix',['p1p2loss_','thr_',options.LRprefix,'p1p2_'],'ext','nii'),...
+                    spm_file(postop_anat_fname,'prefix',[options.RRRprefix,'p1p2loss_','thr_',options.LRprefix,'p1p2_'],'ext','nii'),...
                     'i1>0');    
 
     elseif options.RRRprefix=='subthr'
         %subtract
 
 
-        job_imcalc( spm_file(preop_anat_fname,'prefix','c1c2_','ext','nii'),...
-                    spm_file(postop_anat_fname,'prefix',[options.LRprefix,'c1c2_'],'ext','nii'),...
-                    spm_file(postop_anat_fname,'prefix',['c1c2loss_',options.LRprefix,'c1c2_'],'ext','nii'),...
+        job_imcalc( spm_file(preop_anat_fname,'prefix','p1p2_','ext','nii'),...
+                    spm_file(postop_anat_fname,'prefix',[options.LRprefix,'p1p2_'],'ext','nii'),...
+                    spm_file(postop_anat_fname,'prefix',['p1p2loss_',options.LRprefix,'p1p2_'],'ext','nii'),...
                     'i1-i2'); 
 
         %threshold 
-        job_imcalc( spm_file(postop_anat_fname,'prefix',['c1c2loss_',options.LRprefix,'c1c2_'],'ext','nii'),...
-                    spm_file(postop_anat_fname,'prefix',['thr_','c1c2loss_',options.LRprefix,'c1c2_'],'ext','nii'),...
+        job_imcalc( spm_file(postop_anat_fname,'prefix',['p1p2loss_',options.LRprefix,'p1p2_'],'ext','nii'),...
+                    spm_file(postop_anat_fname,'prefix',['thr_','p1p2loss_',options.LRprefix,'p1p2_'],'ext','nii'),...
                     'i1>0.1'); 
 
         % retain positive 
-        job_imcalc( spm_file(postop_anat_fname,'prefix',['thr_','c1c2loss_',options.LRprefix,'c1c2_'],'ext','nii'),...
-                    spm_file(postop_anat_fname,'prefix',[options.RRRprefix,'thr_','c1c2loss_',options.LRprefix,'c1c2_'],'ext','nii'),...
+        job_imcalc( spm_file(postop_anat_fname,'prefix',['thr_','p1p2loss_',options.LRprefix,'p1p2_'],'ext','nii'),...
+                    spm_file(postop_anat_fname,'prefix',[options.RRRprefix,'thr_','p1p2loss_',options.LRprefix,'p1p2_'],'ext','nii'),...
                     'i1>0');     
     end
 end
@@ -589,11 +612,13 @@ end
 % Match up PET with MRI
 %=====================================
 %job_processing_matchPET2MRI(options, preop_anat_fname, preop_pet_fname);
-if any(options.steps==8)
+if any(options.steps==8)    
     if isfile(preop_pet_fname)
         disp(['Running step 8: Coreg']);
 
         system(['cp ',spm_file(preop_pet_fname,'prefix','','ext','nii'),' ',spm_file(preop_pet_fname,'prefix','tmp_','ext','nii')]); % make a copy because spm coreg likes to overwrite the original image 
+        
+        
         matlabbatch{1}.spm.spatial.coreg.estwrite.ref = {spm_file(preop_anat_fname,'prefix','brain_','ext','nii')};
         matlabbatch{1}.spm.spatial.coreg.estwrite.source = {spm_file(preop_pet_fname,'prefix','tmp_','ext','nii')};
         matlabbatch{1}.spm.spatial.coreg.estwrite.roptions.prefix = 'cpre_';
@@ -603,9 +628,9 @@ if any(options.steps==8)
 
         % get the ICV extracted coregistered PET
         job_imcalc(spm_file(preop_pet_fname,'prefix','cpre_','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','c1','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','c2','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','c3','ext','nii'),...
+                spm_file(preop_anat_fname,'prefix','p1','ext','nii'),...
+                spm_file(preop_anat_fname,'prefix','p2','ext','nii'),...
+                spm_file(preop_anat_fname,'prefix','p3','ext','nii'),...
                 spm_file(preop_pet_fname,'prefix','brain_cpre_','ext','nii'),...
                 'i1.*((i2+i3+i4)>0.5)');
     end
@@ -627,7 +652,7 @@ if any(contains(in_img,'postop_rsctman_fname'));files_to_mni{end+1} = spm_file(p
 if any(options.steps==9.1)
     disp(['Running step 9.1: Normalise Write']);
     
-    matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(preop_anat_fname,'prefix','y_Seg_','ext','nii')}; 
+    matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(preop_anat_fname,'prefix','y_cat12_','ext','nii')}; 
     matlabbatch{1}.spm.util.defs.out{1}.pull.fnames = files_to_mni';
     matlabbatch{1}.spm.util.defs.out{1}.pull.prefix = 'w';
     matlabbatch{1}.spm.util.defs.out{1}.pull.savedir.savesrc = 1;
@@ -638,7 +663,7 @@ if any(options.steps==9.1)
 
     
     % do nearest neighbour interpolation for the resection region image
-    matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(preop_anat_fname,'prefix','y_Seg_','ext','nii')}; 
+    matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(preop_anat_fname,'prefix','y_cat12_','ext','nii')}; 
     matlabbatch{1}.spm.util.defs.out{1}.pull.fnames = resected_tissue_clean_fname';
     matlabbatch{1}.spm.util.defs.out{1}.pull.prefix = 'w';
     matlabbatch{1}.spm.util.defs.out{1}.pull.savedir.savesrc = 1;
@@ -659,7 +684,7 @@ if any(options.steps==9.2)
 
     disp(['Running step 9.2: Normalise Write']);
     
-    matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(postop_anat_fname,'prefix','y_Seg_','ext','nii')}; 
+    matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(postop_anat_fname,'prefix','y_cat12_','ext','nii')}; 
     matlabbatch{1}.spm.util.defs.out{1}.pull.fnames = {spm_file(postop_anat_fname,'prefix','','ext','nii')};
     matlabbatch{1}.spm.util.defs.out{1}.pull.prefix = 'w';
     matlabbatch{1}.spm.util.defs.out{1}.pull.savedir.savesrc = 1;
@@ -671,7 +696,7 @@ if any(options.steps==9.2)
 
     if any(contains(in_img,'postop_rsctman_fname'))    
         
-        matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(postop_anat_fname,'prefix','y_Seg_','ext','nii')}; 
+        matlabbatch{1}.spm.util.defs.comp{1}.def = {spm_file(postop_anat_fname,'prefix','y_cat12_','ext','nii')}; 
         matlabbatch{1}.spm.util.defs.out{1}.pull.fnames = {spm_file(postop_rsctman_fname,'prefix','','ext','nii')};
         matlabbatch{1}.spm.util.defs.out{1}.pull.prefix = 'w';
         matlabbatch{1}.spm.util.defs.out{1}.pull.savedir.savesrc = 1;
@@ -724,90 +749,12 @@ end % end of function
 % Job functions
 %=====================================
 
-function job_auto_reorient(img_fname,acq) 
-
-    addpath(fullfile(spm('Dir'),'toolbox/OldNorm'));
-
-    if strcmp(acq,'anat')
-        vg = spm_vol(fullfile(spm('Dir'),'canonical','avg152T1.nii'));
-    elseif strcmp(acq,'pet')
-        vg = spm_vol(fullfile(spm('Dir'),'toolbox/OldNorm','PET.nii'));
-    else
-        disp('acq not recognised, must be anat or pet');
-        error;
-        return;
-    end
-
-    flags.regtype='rigid';
-    out_fname = spm_file(img_fname,'prefix','r_','ext','nii');
-    system(['cp ',img_fname,' ',out_fname]);
-    %create temp smoothed image
-    spm_smooth(img_fname,'temp.nii',[12 12 12]);
-    vf=spm_vol('temp.nii');
-    [M,scal] = spm_affreg(vg,vf,flags); %vg=template, vf=smoothed input file
-    M3=M(1:3,1:3);
-    [u s v]=svd(M3);
-    M3=u*v';
-    M(1:3,1:3)=M3;
-    N=nifti(out_fname);
-    N.mat=M*N.mat;
-    create(N);
-    system(['rm temp.nii']);
-
-end
-    
-
-function job_cat_vol_set_com(img_fname,out_fname, varargin)
-% use center-of-mass (COM) to roughly correct for differences in the
-% position between image and template.
-% This script changes the affine matrix stored in the image header.
-% If a mat file is specified as the third argument, the code will simply
-% replace the affine matrix with the one supplied.
-
-    copyfile(img_fname,out_fname);
-    V = spm_vol(out_fname);
-
-    if ~isempty(varargin)  
-
-        Affine = load(varargin{1});
-        Affine = Affine.Affine;
-
-    else
-
-        % pre-estimated COM of MNI template
-        com_reference = [0 -20 -15];
-
-        fprintf('Correct center-of-mass for %s\n',V.fname);
-        Affine = eye(4);
-        vol = spm_read_vols(V);
-        avg = mean(vol(:));
-        avg = mean(vol(vol>avg));
-
-        % don't use background values
-        [x,y,z] = ind2sub(size(vol),find(vol>avg));
-        com = V.mat(1:3,:)*[mean(x) mean(y) mean(z) 1]';
-        com = com';
-
-        Affine(1:3,4) = (com - com_reference)';
-        % save affine to apply to other images (particularly the manual segmentation in the postop space)
-        save(spm_file(out_fname,'ext','mat'),'Affine');
-
-    end
-
-    M = spm_get_space(V.fname);
-    spm_get_space(V.fname,Affine\M); % this line overwrites the affine matrix
-
-end
-
-
-
 function job_imcalc(varargin)
     
     for i_img=1:nargin-2
         img_input{i_img,:} = varargin{i_img};    
     end
 
-    
     [in_dir,in_name,in_ext] = fileparts(varargin{1});
     [out_dir,out_name,out_ext] = fileparts(varargin{end-1});
     expr = varargin{end};
@@ -822,8 +769,6 @@ function job_imcalc(varargin)
     matlabbatch{1}.spm.util.imcalc.options.interp = 1;
     matlabbatch{1}.spm.util.imcalc.options.dtype = 4;
     spm_jobman('run', matlabbatch);
-
-
 
 end
 
