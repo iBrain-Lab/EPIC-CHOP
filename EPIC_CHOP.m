@@ -151,6 +151,9 @@ function EPIC_CHOP(preop_anat_fname, postop_anat_fname, varargin)
 % v20: belatedly changes the segmentation and registration to cat12, rather
 % than spm unified. Removes step 1, reorientation via centre of mass, thus
 % requires manual approximate reorientation of PET to MRI
+% v21: auto-reorients the PET, does global normalisation of the PET, brain
+% extracts PET in preop and MNI space
+% v22: adds smoothing 
 %__________________________________________________________________________
 
 
@@ -267,9 +270,8 @@ out_path_sub = fullfile(out_path,subject_name);
 % 0 - make a copy of images to avoid overwriting, and move them to a new directory. optional
 % 1 - reorients via autoreoirent or center of mass
 % 2 - steps_segment   
-% 3 - skull strip
-% 4 - steps_create_mask
-% 10 - linear registration of postop anat to preop anat 
+% 3 - skull strip (ICV)
+% 4 - steps_create_mask (brain tissue mask) 
 % 5.1 - steps_longitudinal registration
 % 5.2 - apply longitudinal registration to get postop images in preop space
 % 5.3 - apply reverse longitudinal registration to get preop images in postop space
@@ -280,14 +282,21 @@ out_path_sub = fullfile(out_path,subject_name);
 % Normalise to MNI
 % 9.1 -normalise all images in preop space to MNI
 % 9.2 - normalise all relevant postop images to MNI space (postop T1 and manual resection cavity)
+% 10.1 - global signal normalisation PET
+% 10.2 - Mask PET (ICV)
+% 11 - extract brain in MNI space
 
 
 if isempty(fieldnames(p.Results.options))
     options = struct;
 end
 if ~isfield(options,'steps')
-    options.steps=[0:8,5.1,5.2,5.3,9.1,9.2];
-    %options.steps=[9.1,9.2];
+    %options.steps=[2];
+    %options.steps=[3:8,5.1,5.2,5.3,9.1,9.2];
+    %options.steps=[0,2,3,4,8,9.1]; %just preop MRI and preop pet 
+    options.steps=[0:12,5.1,5.2,5.3,9.1,9.2,9.3,10.1,10.2];
+    %options.steps=[0:7,5.1,5.2,5.3,9.1,9.2,9.3]
+    %options.steps=[9.1];
 end
 if ~isfield(options,'LRprefix')
     options.LRprefix='LRpre_';
@@ -371,81 +380,87 @@ end
 %---------------------------------
 if any(options.steps==2)
     
-    matlabbatch{1}.spm.tools.cat.estwrite.data = cellstr({spm_file(preop_anat_fname,'prefix','','ext','nii'); spm_file(postop_anat_fname,'prefix','','ext','nii')});
-    matlabbatch{1}.spm.tools.cat.estwrite.data_wmh = {''};
-    matlabbatch{1}.spm.tools.cat.estwrite.nproc = 6;
-    matlabbatch{1}.spm.tools.cat.estwrite.useprior = '';
-    matlabbatch{1}.spm.tools.cat.estwrite.opts.tpm = {fullfile(spm('dir'),'tpm/TPM.nii')};
-    matlabbatch{1}.spm.tools.cat.estwrite.opts.affreg = 'mni';
-    matlabbatch{1}.spm.tools.cat.estwrite.opts.biasacc = 0.5;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.restypes.optimal = [1 0.3];
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.setCOM = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.APP = 1070;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.affmod = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.spm_kamap = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASstr = 0.5;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASmyostr = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.gcutstr = 2;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.WMHC = 2;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shooting.shootingtpm = {fullfile(spm('dir'),'/toolbox/cat12/templates_MNI152NLin2009cAsym/Template_0_GS.nii')};
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shooting.regstr = 0.5;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.vox = 1.5;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.bb = 12;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.SRP = 22;
-    matlabbatch{1}.spm.tools.cat.estwrite.extopts.ignoreErrors = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.BIDS.BIDSno = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.surface = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.surf_measures = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.neuromorphometrics = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.lpba40 = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.cobra = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.hammers = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.thalamus = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.suit = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.ibsr = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.ownatlas = {''};
-    matlabbatch{1}.spm.tools.cat.estwrite.output.GM.native = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.GM.mod = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.GM.dartel = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.WM.native = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.WM.mod = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.WM.dartel = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.native = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.warped = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.mod = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.dartel = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.ct.native = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.ct.warped = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.ct.dartel = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.pp.native = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.pp.warped = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.pp.dartel = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.native = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.warped = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.mod = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.dartel = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.native = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.warped = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.mod = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.dartel = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.native = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.warped = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.mod = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.dartel = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.atlas.native = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.label.native = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.label.warped = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.label.dartel = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.labelnative = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.bias.warped = 1;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.las.native = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.las.warped = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.las.dartel = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.jacobianwarped = 0;
-    matlabbatch{1}.spm.tools.cat.estwrite.output.warps = [1 1];
-    matlabbatch{1}.spm.tools.cat.estwrite.output.rmat = 0;
+    T1s={spm_file(preop_anat_fname,'prefix','','ext','nii'); spm_file(postop_anat_fname,'prefix','','ext','nii')};
+    for i_T1=1:2
+	   matlabbatch{1}.spm.tools.cat.estwrite.data = cellstr(T1s{i_T1});
+	    matlabbatch{1}.spm.tools.cat.estwrite.data_wmh = {''};
+	    matlabbatch{1}.spm.tools.cat.estwrite.nproc = 6;
+	    matlabbatch{1}.spm.tools.cat.estwrite.useprior = '';
+	    matlabbatch{1}.spm.tools.cat.estwrite.opts.tpm = {fullfile(spm('dir'),'tpm/TPM.nii')};
+	    matlabbatch{1}.spm.tools.cat.estwrite.opts.affreg = 'mni';
+	    matlabbatch{1}.spm.tools.cat.estwrite.opts.biasacc = 0.5;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.restypes.optimal = [1 0.3];
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.setCOM = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.APP = 1070;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.affmod = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.spm_kamap = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASstr = 0.5;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASmyostr = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.gcutstr = 2;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.WMHC = 2;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shooting.shootingtpm = {fullfile(spm('dir'),'/toolbox/cat12/templates_MNI152NLin2009cAsym/Template_0_GS.nii')};
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shooting.regstr = 0.5;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.vox = 1.5;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.bb = 12;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.SRP = 22;
+	    matlabbatch{1}.spm.tools.cat.estwrite.extopts.ignoreErrors = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.BIDS.BIDSno = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.surface = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.surf_measures = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.neuromorphometrics = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.lpba40 = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.cobra = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.hammers = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.thalamus = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.suit = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.ibsr = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.ownatlas = {''};
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.GM.native = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.GM.mod = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.GM.dartel = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.WM.native = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.WM.mod = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.WM.dartel = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.native = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.warped = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.mod = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.dartel = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.ct.native = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.ct.warped = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.ct.dartel = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.pp.native = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.pp.warped = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.pp.dartel = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.native = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.warped = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.mod = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.dartel = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.native = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.warped = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.mod = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.SL.dartel = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.native = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.warped = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.mod = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.dartel = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.atlas.native = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.label.native = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.label.warped = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.label.dartel = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.labelnative = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.bias.warped = 1;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.las.native = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.las.warped = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.las.dartel = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.jacobianwarped = 0;
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.warps = [1 1];
+	    matlabbatch{1}.spm.tools.cat.estwrite.output.rmat = 0;
+	    
+	    spm_jobman('run',matlabbatch); clear matlabbatch;	
+	end
+	    			
     
-    spm_jobman('run',matlabbatch); clear matlabbatch;
+    pause(30);
     
     for i_img=1:2
         system(['mv ',ImgStruct.(in_img{i_img}).outpath,'/mri/* ', ImgStruct.(in_img{i_img}).outpath]);
@@ -462,18 +477,27 @@ end
 % skullstrip T1, for better coregistration with PET
 %---------------------------------
 if any(options.steps==3) 
+    
+    % Make brain masks in the different spaces
+    % get the ICV extracted coregistered PET
+    mask_pre_fname = spm_file(preop_anat_fname,'prefix','brainmaskpre_','ext','nii');
+
+    
+    job_imcalc(spm_file(preop_anat_fname,'prefix','p1','ext','nii'),...
+            spm_file(preop_anat_fname,'prefix','p2','ext','nii'),...
+            spm_file(preop_anat_fname,'prefix','p3','ext','nii'),...
+            mask_pre_fname,...
+            '((i1+i2+i3)>0.5)');
+        
+    % fill dem holes
+    job_filldemho(mask_pre_fname,mask_pre_fname)
+    
+    
     job_imcalc( spm_file(preop_anat_fname,'prefix','','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','p1','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','p2','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','p3','ext','nii'),...
+                mask_pre_fname,...
                 spm_file(preop_anat_fname,'prefix','brain_','ext','nii'),...
-                'i1.*((i2+i3+i4)>0.5)');
-    job_imcalc( spm_file(postop_anat_fname,'prefix','','ext','nii'),...
-                spm_file(postop_anat_fname,'prefix','p1','ext','nii'),...
-                spm_file(postop_anat_fname,'prefix','p2','ext','nii'),...
-                spm_file(postop_anat_fname,'prefix','p3','ext','nii'),...
-                spm_file(postop_anat_fname,'prefix','brain_','ext','nii'),...
-                'i1.*((i2+i3+i4)>0.5)');        
+                'i1.*i2');
+      
 end
 
 
@@ -616,24 +640,87 @@ if any(options.steps==8)
     if isfile(preop_pet_fname)
         disp(['Running step 8: Coreg']);
 
-        system(['cp ',spm_file(preop_pet_fname,'prefix','','ext','nii'),' ',spm_file(preop_pet_fname,'prefix','tmp_','ext','nii')]); % make a copy because spm coreg likes to overwrite the original image 
         
+        % make a temporary copy because spm coreg likes to overwrite the original image 
+        system(['cp ',spm_file(preop_pet_fname,'prefix','','ext','nii'),' ',spm_file(preop_pet_fname,'prefix','tmp_','ext','nii')]); 
+        % set origin to center of mass in the temporary copy
+        job_cat_vol_set_com(spm_file(preop_pet_fname,'prefix','tmp_','ext','nii'),spm_file(preop_pet_fname,'prefix','tmp_ro_','ext','nii'))
         
         matlabbatch{1}.spm.spatial.coreg.estwrite.ref = {spm_file(preop_anat_fname,'prefix','brain_','ext','nii')};
-        matlabbatch{1}.spm.spatial.coreg.estwrite.source = {spm_file(preop_pet_fname,'prefix','tmp_','ext','nii')};
+        matlabbatch{1}.spm.spatial.coreg.estwrite.source = {spm_file(preop_pet_fname,'prefix','tmp_ro_','ext','nii')};
         matlabbatch{1}.spm.spatial.coreg.estwrite.roptions.prefix = 'cpre_';
         spm_jobman('run',matlabbatch); clear matlabbatch;
 
-        system(['mv ',spm_file(preop_pet_fname,'prefix','cpre_tmp_','ext','nii'),' ',spm_file(preop_pet_fname,'prefix','cpre_','ext','nii')]);
+        system(['mv ',spm_file(preop_pet_fname,'prefix','cpre_tmp_ro_','ext','nii'),' ',spm_file(preop_pet_fname,'prefix','cpre_','ext','nii')]);
 
-        % get the ICV extracted coregistered PET
-        job_imcalc(spm_file(preop_pet_fname,'prefix','cpre_','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','p1','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','p2','ext','nii'),...
-                spm_file(preop_anat_fname,'prefix','p3','ext','nii'),...
-                spm_file(preop_pet_fname,'prefix','brain_cpre_','ext','nii'),...
-                'i1.*((i2+i3+i4)>0.5)');
     end
+end
+
+
+%=====================================
+% global signal normalisation PET
+%=====================================
+
+
+if any(options.steps==10.1)
+    disp(['Running step: global signal normalisation PET']);
+    
+    mask_pre_fname = spm_file(preop_anat_fname,'prefix','brainmaskpre_','ext','nii');
+    
+    files_to_normalise = {};
+    files_to_normalise{end+1} = spm_file(preop_pet_fname,'prefix','cpre_','ext','nii'); 
+    %files_to_normalise{end+1} = spm_file(preop_pet_fname,'prefix','brain_cpre_','ext','nii'); 
+
+    for i=1:length(files_to_normalise)
+        out_fname = spm_file(files_to_normalise{i},'prefix','g','ext','nii');
+        job_globalnorm(files_to_normalise{i},mask_pre_fname,out_fname);
+    end
+       
+end
+
+%=====================================
+% smooth PET and GM
+%=====================================
+if any(options.steps==12)   
+    disp(['Running step: Smoothing PET and GM']);
+   
+    files_to_smooth = {};
+    files_to_smooth{end+1} = spm_file(preop_pet_fname,'prefix','gcpre_','ext','nii'); 
+    files_to_smooth{end+1} = spm_file(preop_pet_fname,'prefix','cpre_','ext','nii'); 
+    
+    for i=1:length(files_to_smooth)
+        matlabbatch{1}.spm.spatial.smooth.data = files_to_smooth';
+        matlabbatch{1}.spm.spatial.smooth.fwhm = [8 8 8];
+        matlabbatch{1}.spm.spatial.smooth.dtype = 0;
+        matlabbatch{1}.spm.spatial.smooth.im = 0;
+        matlabbatch{1}.spm.spatial.smooth.prefix = 's';
+        spm_jobman('run',matlabbatch); clear matlabbatch;
+    end
+    
+end
+
+%=====================================
+% mask pets
+%=====================================
+if any(options.steps==10.2)
+     disp(['Running step: mask PET']);
+         
+    mask_pre_fname = spm_file(preop_anat_fname,'prefix','brainmaskpre_','ext','nii');    
+    
+    files_to_mask = {};     
+    files_to_mask{end+1} = spm_file(preop_pet_fname,'prefix','gcpre_','ext','nii'); 
+    files_to_mask{end+1} = spm_file(preop_pet_fname,'prefix','cpre_','ext','nii'); 
+    files_to_mask{end+1} = spm_file(preop_pet_fname,'prefix','sgcpre_','ext','nii'); 
+    files_to_mask{end+1} = spm_file(preop_pet_fname,'prefix','scpre_','ext','nii'); 
+
+    for i=1:length(files_to_mask)
+        out_fname = spm_file(files_to_mask{i},'prefix','brain_','ext','nii');
+        job_imcalc(files_to_mask{i},...
+                    mask_pre_fname,...
+                    out_fname,...
+                    'i1.*i2');
+    end   
+        
 end
 
 %=====================================
@@ -643,9 +730,13 @@ end
 files_to_mni = {};  
 
 if any(contains(in_img,'preop_anat_fname'));    files_to_mni{end+1} = spm_file(preop_anat_fname,'prefix','','ext','nii'); end
-if any(contains(in_img,'preop_pet_fname'));     files_to_mni{end+1} = spm_file(preop_pet_fname,'prefix','cpre_','ext','nii'); files_to_mni{end+1} = spm_file(preop_pet_fname,'prefix','brain_cpre_','ext','nii'); end
-if any(contains(in_img,'postop_anat_fname'));   files_to_mni{end+1} = spm_file(postop_anat_fname,'prefix',options.LRprefix,'ext','nii'); end
-if any(contains(in_img,'postop_rsctman_fname'));files_to_mni{end+1} = spm_file(postop_rsctman_fname,'prefix',options.LRprefix,'ext','nii'); end
+%if any(contains(in_img,'preop_anat_fname'));    files_to_mni{end+1} = spm_file(preop_anat_fname,'prefix','brain_','ext','nii'); end
+if any(contains(in_img,'preop_pet_fname'));     
+       files_to_mni{end+1} = spm_file(preop_pet_fname,'prefix','gcpre_','ext','nii'); 
+       files_to_mni{end+1} = spm_file(preop_pet_fname,'prefix','cpre_','ext','nii'); 
+end
+%if any(contains(in_img,'postop_anat_fname'));   files_to_mni{end+1} = spm_file(postop_anat_fname,'prefix',options.LRprefix,'ext','nii'); end
+%if any(contains(in_img,'postop_rsctman_fname'));files_to_mni{end+1} = spm_file(postop_rsctman_fname,'prefix',options.LRprefix,'ext','nii'); end
 %files_to_mni{end+1} = spm_file(preop_anat_fname,'prefix','c1','ext','nii');
 
 
@@ -708,6 +799,64 @@ if any(options.steps==9.2)
     end
 end
 
+
+%=====================================
+% smooth PET and GM
+%=====================================
+
+if any(options.steps==12)   
+    disp(['Running step: Smoothing PET and GM']);
+   
+    files_to_smooth = {};
+    files_to_smooth{end+1} = spm_file(preop_pet_fname,'prefix','wgcpre_','ext','nii'); 
+    files_to_smooth{end+1} = spm_file(preop_pet_fname,'prefix','wcpre_','ext','nii'); 
+    
+    for i=1:length(files_to_smooth)
+        matlabbatch{1}.spm.spatial.smooth.data = files_to_smooth';
+        matlabbatch{1}.spm.spatial.smooth.fwhm = [8 8 8];
+        matlabbatch{1}.spm.spatial.smooth.dtype = 0;
+        matlabbatch{1}.spm.spatial.smooth.im = 0;
+        matlabbatch{1}.spm.spatial.smooth.prefix = 's';
+        spm_jobman('run',matlabbatch); clear matlabbatch;
+    end
+    
+end
+
+
+%=====================================
+% extract brain in MNI space
+%=====================================
+if any(options.steps==11)
+    
+    mni_brain_anat_fname = spm_file(preop_anat_fname,'prefix','wm','ext','nii'); 
+    mask_mni_fname = spm_file(preop_anat_fname,'prefix','brainmaskw_','ext','nii');
+    
+    job_imcalc(mni_brain_anat_fname,...
+        mask_mni_fname,...
+        'i1>0');
+    
+    
+    files_to_mask = {};
+    files_to_mask{end+1} = spm_file(preop_pet_fname,'prefix','wgcpre_','ext','nii'); 
+    files_to_mask{end+1} = spm_file(preop_pet_fname,'prefix','wcpre_','ext','nii'); 
+    files_to_mask{end+1} = spm_file(preop_pet_fname,'prefix','swgcpre_','ext','nii'); 
+    files_to_mask{end+1} = spm_file(preop_pet_fname,'prefix','swcpre_','ext','nii'); 
+    
+    
+    for i=1:length(files_to_mask)
+        out_fname = spm_file(files_to_mask{i},'prefix','brain_','ext','nii');
+        job_imcalc(files_to_mask{i},...
+                    mask_mni_fname,...
+                    out_fname,...
+                    'i1.*i2');
+    end
+    
+end
+
+
+
+
+
 %=====================================
 % Move resection cavity image to postop space, in case this is needed
 % for comparison with other algorithms etc.
@@ -727,6 +876,8 @@ if any(options.steps==5.3) % register preop MRI to postop space
     matlabbatch{1}.spm.util.defs.out{1}.pull.savedir.savesrc = 1;
     matlabbatch{1}.spm.util.defs.out{1}.pull.mask = 1;
     matlabbatch{1}.spm.util.defs.out{1}.pull.fwhm = [0 0 0];
+    matlabbatch{1}.spm.util.defs.out{1}.pull.interp = 0; 
+    
     spm_jobman('run',matlabbatch); clear matlabbatch;
     
     %threshold. The longitudinal registration algorithm doesnt allow
@@ -739,15 +890,21 @@ if any(options.steps==5.3) % register preop MRI to postop space
 
 end
 
+
+
+
+
 t_sub = toc(tstart_sub);
 disp(['time = ',num2str(t_sub/60)]);
 
 end % end of function
 
-
-%=====================================
+%==========================================================================
+%==========================================================================
 % Job functions
-%=====================================
+%==========================================================================
+%==========================================================================
+
 
 function job_imcalc(varargin)
     
@@ -767,9 +924,64 @@ function job_imcalc(varargin)
     matlabbatch{1}.spm.util.imcalc.options.dmtx = 0;
     matlabbatch{1}.spm.util.imcalc.options.mask = 0;
     matlabbatch{1}.spm.util.imcalc.options.interp = 1;
-    matlabbatch{1}.spm.util.imcalc.options.dtype = 4;
+    %matlabbatch{1}.spm.util.imcalc.options.dtype = 4;
+    matlabbatch{1}.spm.util.imcalc.options.dtype = 16;
     spm_jobman('run', matlabbatch);
 
+end
+
+
+function job_globalnorm(in_fname,mask_fname,out_fname)
+    
+    % will fail if input image is an int16
+
+    [in_dir,in_name,in_ext] = fileparts(in_fname);
+    [out_dir,out_name,out_ext] = fileparts(out_fname);
+  
+    in_V = spm_vol(in_fname);
+    in_data_orig = spm_read_vols(in_V);
+    in_data = in_data_orig;
+    inds_nan=find(isnan(in_data));
+    [xnan,ynan,znan]=ind2sub(size(in_data),inds_nan);
+    
+    mask_V = spm_vol(mask_fname);
+    mask_data_orig = spm_read_vols(mask_V);
+    mask_data = mask_data_orig;
+    
+    inds_mask=find(mask_data>0);
+    in_data_mask = in_data(inds_mask); %this also turns the image into a 1D array 
+    
+    out_data = ( in_data - nanmean(in_data_mask) ) /  nanstd(in_data_mask);
+
+    %save image
+    out_V = in_V;
+    out_V.fname = out_fname;
+    out_V.private.dat.fname = out_fname;
+    out_V.dt = [16 0];
+    out_V.private.dat(:,:,:) = out_data;
+    out_V = spm_write_vol(out_V,out_data);
+    
+    
+    %out_V = spm_write_vol(out_V)
+    %out_V.private.dat.dtype = 'FLOAT32'
+    %out_V.private.dat = file_array('data', in_V.dim, 'INT16-LE');
+    %out_V.private.dat(:,:,:) = single(in_V.private.dat(:,:,:));
+end
+
+
+function job_filldemho(in_fname,out_fname)
+
+    in_V = spm_vol(in_fname);
+    in_data_orig = spm_read_vols(in_V);
+    in_data = in_data_orig;
+    
+    out_data = imfill(in_data);
+
+    %save image
+    out_V = in_V;
+    out_V.fname = out_fname;
+    out_V.private.dat.fname = out_fname;
+    out_V = spm_write_vol(out_V,out_data);
 end
 
 
@@ -894,4 +1106,47 @@ function result = job_getclusters(image,i_clus)
     result = zeros(size(image));
     inds = sub2ind(size(image), XYZ(:,1), XYZ(:,2), XYZ(:,3));
     result(inds) = image(inds);
+end
+
+
+function job_cat_vol_set_com(img_fname,out_fname, varargin)
+% use center-of-mass (COM) to roughly correct for differences in the
+% position between image and template.
+% This script changes the affine matrix stored in the image header.
+% If a mat file is specified as the third argument, the code will simply
+% replace the affine matrix with the one supplied.
+
+    copyfile(img_fname,out_fname);
+    V = spm_vol(out_fname);
+
+    if ~isempty(varargin)  
+
+        Affine = load(varargin{1});
+        Affine = Affine.Affine;
+
+    else
+
+        % pre-estimated COM of MNI template
+        com_reference = [0 -20 -15];
+
+        fprintf('Correct center-of-mass for %s\n',V.fname);
+        Affine = eye(4);
+        vol = spm_read_vols(V);
+        avg = mean(vol(:));
+        avg = mean(vol(vol>avg));
+
+        % don't use background values
+        [x,y,z] = ind2sub(size(vol),find(vol>avg));
+        com = V.mat(1:3,:)*[mean(x) mean(y) mean(z) 1]';
+        com = com';
+
+        Affine(1:3,4) = (com - com_reference)';
+        % save affine to apply to other images (particularly the manual segmentation in the postop space)
+        save(spm_file(out_fname,'ext','mat'),'Affine');
+
+    end
+
+    M = spm_get_space(V.fname);
+    spm_get_space(V.fname,Affine\M); % this line overwrites the affine matrix
+
 end
